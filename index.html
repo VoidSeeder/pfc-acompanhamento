@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acompanhamento do TCC</title>
+<meta name="description" content="Últimas atualizações do Trabalho de Conclusão de Curso do João Pedro.">
+<style>
+  :root {
+    --fundo: #f6f5f1;
+    --cartao: #ffffff;
+    --texto: #1f2328;
+    --suave: #6b7280;
+    --linha: #e3e1da;
+    --texto-cor: #7a4b12;
+    --texto-fundo: #fbefdc;
+    --codigo-cor: #1d5a8a;
+    --codigo-fundo: #e2eff9;
+    --novo: #fff6cf;
+    --aviso-cor: #8a3b12;
+    --aviso-fundo: #fdeee4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo: #15171a;
+      --cartao: #1e2125;
+      --texto: #e8e6e1;
+      --suave: #9aa1ab;
+      --linha: #2e3238;
+      --texto-cor: #f0c486;
+      --texto-fundo: #3b2c16;
+      --codigo-cor: #9ccbf0;
+      --codigo-fundo: #1b3346;
+      --novo: #3a3418;
+      --aviso-cor: #f3b594;
+      --aviso-fundo: #3a2318;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fundo);
+    color: var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 17px;
+    line-height: 1.5;
+  }
+  main {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 32px 16px 64px;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 1.7rem;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  .subtitulo {
+    margin: 0 0 20px;
+    color: var(--suave);
+    text-wrap: pretty;
+  }
+  .situacao {
+    margin: 0 0 8px;
+    color: var(--suave);
+    font-size: 0.9rem;
+  }
+  .aviso {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--aviso-fundo);
+    color: var(--aviso-cor);
+    font-size: 0.95rem;
+  }
+  .legenda {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    margin: 0 0 8px;
+    padding: 0;
+    list-style: none;
+    color: var(--suave);
+    font-size: 0.9rem;
+  }
+  h2 {
+    margin: 28px 0 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--suave);
+  }
+  h2::first-letter { text-transform: uppercase; }
+  ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    background: var(--cartao);
+    border: 1px solid var(--linha);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  li.item {
+    padding: 14px 16px;
+    border-top: 1px solid var(--linha);
+    transition: background-color 4s ease-out;
+  }
+  li.item:first-child { border-top: 0; }
+  li.item.novo { background: var(--novo); transition: none; }
+  .mensagem {
+    margin: 0 0 6px;
+    overflow-wrap: anywhere;
+  }
+  .rodape {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    color: var(--suave);
+    font-size: 0.88rem;
+  }
+  .etiqueta {
+    padding: 1px 9px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .etiqueta.texto { color: var(--texto-cor); background: var(--texto-fundo); }
+  .etiqueta.codigo { color: var(--codigo-cor); background: var(--codigo-fundo); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Acompanhamento do TCC</h1>
+  <p class="subtitulo">Tudo o que o João Pedro vai registrando no trabalho aparece aqui, do mais recente para o mais antigo.</p>
+
+  <ul class="legenda">
+    <li><span class="etiqueta texto">Texto da monografia</span> o documento escrito</li>
+    <li><span class="etiqueta codigo">Códigos</span> os programas das simulações</li>
+  </ul>
+
+  <p class="situacao" id="situacao" aria-live="polite">Carregando…</p>
+  <p class="aviso" id="aviso" role="status" hidden></p>
+
+  <div id="lista"></div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  var FONTES = [
+    { repo: 'VoidSeeder/PFC-Monography', rotulo: 'Texto da monografia', classe: 'texto' },
+    { repo: 'VoidSeeder/cfd_on_gpu', rotulo: 'Códigos', classe: 'codigo' }
+  ];
+  var POR_FONTE = 30;
+  var INTERVALO_MS = 5 * 60 * 1000;
+  var MINIMO_ENTRE_CONSULTAS_MS = 60 * 1000;
+
+  var elLista = document.getElementById('lista');
+  var elSituacao = document.getElementById('situacao');
+  var elAviso = document.getElementById('aviso');
+
+  // Última resposta boa de cada fonte; se uma consulta falhar, a anterior continua valendo.
+  var porFonte = {};
+  var vistos = null;
+  var ultimaConsulta = 0;
+  var ultimaAtualizacao = null;
+  var consultando = false;
+
+  var fmtHora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  var fmtDia = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  var fmtDiaAno = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  function hora(data) {
+    return fmtHora.format(data).replace(':', 'h');
+  }
+
+  function chaveDoDia(data) {
+    return data.getFullYear() + '-' + data.getMonth() + '-' + data.getDate();
+  }
+
+  function nomeDoDia(data, agora) {
+    var inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+    var inicioDia = new Date(data.getFullYear(), data.getMonth(), data.getDate());
+    var dias = Math.round((inicioHoje - inicioDia) / 86400000);
+    if (dias === 0) return 'Hoje';
+    if (dias === 1) return 'Ontem';
+    if (data.getFullYear() === agora.getFullYear()) return fmtDia.format(data);
+    return fmtDiaAno.format(data);
+  }
+
+  function buscar(fonte) {
+    var url = 'https://api.github.com/repos/' + fonte.repo + '/commits?per_page=' + POR_FONTE;
+    return fetch(url, { headers: { Accept: 'application/vnd.github+json' } })
+      .then(function (resposta) {
+        if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
+        return resposta.json();
+      })
+      .then(function (commits) {
+        return commits.map(function (c) {
+          return {
+            id: c.sha,
+            mensagem: c.commit.message.split('\n')[0].trim(),
+            data: new Date(c.commit.committer.date),
+            fonte: fonte
+          };
+        });
+      });
+  }
+
+  function desenhar(novos) {
+    var itens = [];
+    FONTES.forEach(function (fonte) {
+      itens = itens.concat(porFonte[fonte.repo] || []);
+    });
+    itens.sort(function (a, b) { return b.data - a.data; });
+
+    var agora = new Date();
+    var fragmento = document.createDocumentFragment();
+    var diaAtual = null;
+    var grupo = null;
+
+    itens.forEach(function (item) {
+      var chave = chaveDoDia(item.data);
+      if (chave !== diaAtual) {
+        diaAtual = chave;
+        var titulo = document.createElement('h2');
+        titulo.textContent = nomeDoDia(item.data, agora);
+        fragmento.appendChild(titulo);
+        grupo = document.createElement('ol');
+        fragmento.appendChild(grupo);
+      }
+
+      var li = document.createElement('li');
+      li.className = 'item' + (novos[item.id] ? ' novo' : '');
+
+      var mensagem = document.createElement('p');
+      mensagem.className = 'mensagem';
+      mensagem.textContent = item.mensagem;
+
+      var rodape = document.createElement('div');
+      rodape.className = 'rodape';
+      var etiqueta = document.createElement('span');
+      etiqueta.className = 'etiqueta ' + item.fonte.classe;
+      etiqueta.textContent = item.fonte.rotulo;
+      var quando = document.createElement('time');
+      quando.dateTime = item.data.toISOString();
+      quando.textContent = 'às ' + hora(item.data);
+      rodape.appendChild(etiqueta);
+      rodape.appendChild(quando);
+
+      li.appendChild(mensagem);
+      li.appendChild(rodape);
+      grupo.appendChild(li);
+    });
+
+    elLista.replaceChildren(fragmento);
+
+    // Tira o destaque no quadro seguinte para a cor desbotar aos poucos.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        elLista.querySelectorAll('.novo').forEach(function (el) { el.classList.remove('novo'); });
+      });
+    });
+  }
+
+  function mostrarSituacao() {
+    if (!ultimaAtualizacao) return;
+    elSituacao.textContent = 'Atualizado ' + nomeDoDia(ultimaAtualizacao, new Date()).toLowerCase() +
+      ' às ' + hora(ultimaAtualizacao) + '. Esta página se atualiza sozinha.';
+  }
+
+  function atualizar() {
+    if (consultando) return;
+    consultando = true;
+    ultimaConsulta = Date.now();
+
+    Promise.allSettled(FONTES.map(buscar)).then(function (resultados) {
+      var falhas = 0;
+      resultados.forEach(function (resultado, i) {
+        if (resultado.status === 'fulfilled') porFonte[FONTES[i].repo] = resultado.value;
+        else falhas++;
+      });
+
+      var temAlgo = Object.keys(porFonte).length > 0;
+      var novos = {};
+      if (temAlgo) {
+        var agoraVistos = {};
+        Object.keys(porFonte).forEach(function (repo) {
+          porFonte[repo].forEach(function (item) {
+            agoraVistos[item.id] = true;
+            if (vistos && !vistos[item.id]) novos[item.id] = true;
+          });
+        });
+        vistos = agoraVistos;
+        desenhar(novos);
+      }
+
+      if (falhas === 0) {
+        ultimaAtualizacao = new Date();
+        elAviso.hidden = true;
+        mostrarSituacao();
+      } else if (temAlgo) {
+        elAviso.textContent = 'Não foi possível buscar as novidades agora. A lista abaixo pode estar incompleta; a página tenta de novo em alguns minutos.';
+        elAviso.hidden = false;
+        if (ultimaAtualizacao) mostrarSituacao();
+        else elSituacao.textContent = '';
+      } else {
+        elAviso.textContent = 'Não foi possível carregar as atualizações agora. A página tenta de novo sozinha em alguns minutos.';
+        elAviso.hidden = false;
+        elSituacao.textContent = '';
+      }
+    }).finally(function () {
+      consultando = false;
+    });
+  }
+
+  atualizar();
+  setInterval(atualizar, INTERVALO_MS);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && Date.now() - ultimaConsulta > MINIMO_ENTRE_CONSULTAS_MS) atualizar();
+  });
+})();
+</script>
+</body>
+</html>
