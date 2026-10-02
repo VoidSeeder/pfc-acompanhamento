@@ -1,0 +1,17 @@
+{
+  "name": "tcc-avisos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --test-scheduled",
+    "deploy": "wrangler deploy",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@block65/webcrypto-web-push": "2.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.3",
+    "wrangler": "^4.147.0"
+  }
+}
