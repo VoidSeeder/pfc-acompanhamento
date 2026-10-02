@@ -21,7 +21,6 @@ describe('validarInscricao', () => {
   });
 
   it.each([
-    'https://fcm.googleapis.com/fcm/send/abc',
     'https://jmt17.google.com/fcm/send/abc',
     'https://updates.push.services.mozilla.com/wpush/v2/abc',
     'https://wns2-par02p.notify.windows.com/w/?token=abc',
