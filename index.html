@@ -518,6 +518,10 @@
     }
     inscricaoAtual().then(function (inscricao) {
       mostrarAvisos(inscricao ? 'ativado' : 'desativado');
+      // Reenvia a inscrição ao Worker a cada abertura, em silêncio: se o primeiro envio não
+      // chegou (app fechado no meio) ou o Worker a perdeu, ela volta a valer. Uma falha aqui
+      // não muda o que a página mostra.
+      if (inscricao) falarComWorker('POST', inscricao.toJSON()).catch(function () {});
     }).catch(function () {
       // Sem service worker funcionando não há como avisar; o bloco fica escondido.
     });
