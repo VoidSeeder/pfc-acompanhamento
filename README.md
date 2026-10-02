@@ -2,7 +2,8 @@
 
 Página única que lista, em linguagem simples, as últimas atualizações do
 [texto da monografia](https://github.com/VoidSeeder/PFC-Monography) e dos
-[códigos](https://github.com/VoidSeeder/cfd_on_gpu).
+[códigos](https://github.com/VoidSeeder/cfd_on_gpu), além dos registros de
+decisões e estudos do trabalho, guardados em um Gist.
 
 Disponível em <https://voidseeder.github.io/pfc-acompanhamento/>.
 

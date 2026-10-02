@@ -16,6 +16,8 @@
     --texto-fundo: #fbefdc;
     --codigo-cor: #1d5a8a;
     --codigo-fundo: #e2eff9;
+    --documentacao-cor: #2c6a3a;
+    --documentacao-fundo: #e1f2e4;
     --novo: #fff6cf;
     --aviso-cor: #8a3b12;
     --aviso-fundo: #fdeee4;
@@ -31,6 +33,8 @@
       --texto-fundo: #3b2c16;
       --codigo-cor: #9ccbf0;
       --codigo-fundo: #1b3346;
+      --documentacao-cor: #a3d9ad;
+      --documentacao-fundo: #1c3a24;
       --novo: #3a3418;
       --aviso-cor: #f3b594;
       --aviso-fundo: #3a2318;
@@ -128,6 +132,7 @@
   }
   .etiqueta.texto { color: var(--texto-cor); background: var(--texto-fundo); }
   .etiqueta.codigo { color: var(--codigo-cor); background: var(--codigo-fundo); }
+  .etiqueta.documentacao { color: var(--documentacao-cor); background: var(--documentacao-fundo); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -139,6 +144,7 @@
   <ul class="legenda">
     <li><span class="etiqueta texto">Texto da monografia</span> o documento escrito</li>
     <li><span class="etiqueta codigo">Códigos</span> os programas das simulações</li>
+    <li><span class="etiqueta documentacao">Documentação</span> decisões e estudos do trabalho</li>
   </ul>
 
   <p class="situacao" id="situacao" aria-live="polite">Carregando…</p>
@@ -153,7 +159,8 @@
 
   var FONTES = [
     { repo: 'VoidSeeder/PFC-Monography', rotulo: 'Texto da monografia', classe: 'texto' },
-    { repo: 'VoidSeeder/cfd_on_gpu', rotulo: 'Códigos', classe: 'codigo' }
+    { repo: 'VoidSeeder/cfd_on_gpu', rotulo: 'Códigos', classe: 'codigo' },
+    { anotacoes: 'https://gist.githubusercontent.com/VoidSeeder/5a882a39e3d93b55f8cd31370f88aee6/raw/anotacoes.json', rotulo: 'Documentação', classe: 'documentacao' }
   ];
   var POR_FONTE = 30;
   var INTERVALO_MS = 5 * 60 * 1000;
@@ -193,7 +200,29 @@
   }
 
   function buscar(fonte) {
-    var url = 'https://api.github.com/repos/' + fonte.repo + '/commits?per_page=' + POR_FONTE;
+    return fonte.repo ? buscarCommits(fonte) : buscarAnotacoes(fonte);
+  }
+
+  function buscarAnotacoes(fonte) {
+    return fetch(fonte.anotacoes)
+      .then(function (resposta) {
+        if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
+        return resposta.json();
+      })
+      .then(function (anotacoes) {
+        return anotacoes.map(function (a) {
+          return {
+            id: a.data + ' ' + a.texto,
+            mensagem: a.texto,
+            data: new Date(a.data),
+            fonte: fonte
+          };
+        }).filter(function (item) { return !isNaN(item.data); });
+      });
+  }
+
+  function buscarCommits(fonte) {
+    var url ='https://api.github.com/repos/' + fonte.repo + '/commits?per_page=' + POR_FONTE;
     return fetch(url, { headers: { Accept: 'application/vnd.github+json' } })
       .then(function (resposta) {
         if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
@@ -213,8 +242,8 @@
 
   function desenhar(novos) {
     var itens = [];
-    FONTES.forEach(function (fonte) {
-      itens = itens.concat(porFonte[fonte.repo] || []);
+    FONTES.forEach(function (fonte, i) {
+      itens = itens.concat(porFonte[i] || []);
     });
     itens.sort(function (a, b) { return b.data - a.data; });
 
@@ -281,7 +310,7 @@
     Promise.allSettled(FONTES.map(buscar)).then(function (resultados) {
       var falhas = 0;
       resultados.forEach(function (resultado, i) {
-        if (resultado.status === 'fulfilled') porFonte[FONTES[i].repo] = resultado.value;
+        if (resultado.status === 'fulfilled') porFonte[i] = resultado.value;
         else falhas++;
       });
 
@@ -289,8 +318,8 @@
       var novos = {};
       if (temAlgo) {
         var agoraVistos = {};
-        Object.keys(porFonte).forEach(function (repo) {
-          porFonte[repo].forEach(function (item) {
+        Object.keys(porFonte).forEach(function (i) {
+          porFonte[i].forEach(function (item) {
             agoraVistos[item.id] = true;
             if (vistos && !vistos[item.id]) novos[item.id] = true;
           });
