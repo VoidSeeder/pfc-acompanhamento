@@ -1,0 +1,4 @@
+# O GitHub Pages publica a raiz da main com Jekyll. Isto deixa de fora o que não é do site.
+exclude:
+  - worker
+  - docs

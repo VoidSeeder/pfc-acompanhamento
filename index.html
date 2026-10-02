@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Acompanhamento do TCC</title>
 <meta name="description" content="Últimas atualizações do Trabalho de Conclusão de Curso do João Pedro.">
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15171a" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
   :root {
     --fundo: #f6f5f1;
@@ -70,6 +73,25 @@
     color: var(--suave);
     font-size: 0.9rem;
   }
+  .acoes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin: 0 0 16px;
+    color: var(--suave);
+    font-size: 0.9rem;
+  }
+  button {
+    padding: 8px 16px;
+    border: 1px solid var(--linha);
+    border-radius: 999px;
+    background: var(--cartao);
+    color: var(--texto);
+    font: inherit;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
   .aviso {
     margin: 0 0 16px;
     padding: 10px 14px;
@@ -148,6 +170,9 @@
   </ul>
 
   <p class="situacao" id="situacao" aria-live="polite">Carregando…</p>
+  <div class="acoes" id="acoes" hidden>
+    <button type="button" id="instalar" hidden>Instalar no celular</button>
+  </div>
   <p class="aviso" id="aviso" role="status" hidden></p>
 
   <div id="lista"></div>
@@ -169,6 +194,8 @@
   var elLista = document.getElementById('lista');
   var elSituacao = document.getElementById('situacao');
   var elAviso = document.getElementById('aviso');
+  var elAcoes = document.getElementById('acoes');
+  var elInstalar = document.getElementById('instalar');
 
   // Última resposta boa de cada fonte; se uma consulta falhar, a anterior continua valendo.
   var porFonte = {};
@@ -346,6 +373,38 @@
       consultando = false;
     });
   }
+
+  // O bloco de botões some inteiro quando não há nada a mostrar, para a página ficar como era.
+  function ajustarAcoes() {
+    elAcoes.hidden = !elAcoes.querySelector(':scope > :not([hidden])');
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function () {
+      // Sem service worker a página funciona como antes; só não abre sem internet nem avisa.
+    });
+  }
+
+  var pedidoDeInstalacao = null;
+  window.addEventListener('beforeinstallprompt', function (evento) {
+    evento.preventDefault();
+    pedidoDeInstalacao = evento;
+    elInstalar.hidden = false;
+    ajustarAcoes();
+  });
+  elInstalar.addEventListener('click', function () {
+    if (!pedidoDeInstalacao) return;
+    pedidoDeInstalacao.prompt();
+    // O pedido só vale uma vez; se a pessoa recusar, o navegador dispara outro mais tarde.
+    pedidoDeInstalacao = null;
+    elInstalar.hidden = true;
+    ajustarAcoes();
+  });
+  window.addEventListener('appinstalled', function () {
+    pedidoDeInstalacao = null;
+    elInstalar.hidden = true;
+    ajustarAcoes();
+  });
 
   atualizar();
   setInterval(atualizar, INTERVALO_MS);

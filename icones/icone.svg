@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Letras desenhadas com formas, sem fonte, para o PNG sair igual em qualquer máquina. -->
+  <rect width="512" height="512" rx="96" fill="#fbefdc"/>
+  <g fill="none" stroke="#7a4b12" stroke-width="40">
+    <path d="M40 186H170M105 186V346"/>
+    <path d="M311.4 202.4A55 70 0 1 0 311.4 309.6"/>
+    <path d="M451.4 202.4A55 70 0 1 0 451.4 309.6"/>
+  </g>
+</svg>
