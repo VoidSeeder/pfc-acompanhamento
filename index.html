@@ -190,6 +190,7 @@
   var POR_FONTE = 30;
   var INTERVALO_MS = 5 * 60 * 1000;
   var MINIMO_ENTRE_CONSULTAS_MS = 60 * 1000;
+  var CHAVE_SALVA = 'tcc-lista';
 
   var elLista = document.getElementById('lista');
   var elSituacao = document.getElementById('situacao');
@@ -329,6 +330,54 @@
       ' às ' + hora(ultimaAtualizacao) + '. Esta página se atualiza sozinha.';
   }
 
+  // Guarda a última lista para o app abrir sem internet. Cada fonte é gravada pela sua
+  // classe, e não pela posição em FONTES, para a ordem poder mudar sem trocar os rótulos.
+  function salvar() {
+    try {
+      var itens = {};
+      FONTES.forEach(function (fonte, i) {
+        if (!porFonte[i]) return;
+        itens[fonte.classe] = porFonte[i].map(function (item) {
+          return { id: item.id, mensagem: item.mensagem, data: item.data.toISOString() };
+        });
+      });
+      localStorage.setItem(CHAVE_SALVA, JSON.stringify({
+        porFonte: itens,
+        ultimaAtualizacao: ultimaAtualizacao ? ultimaAtualizacao.toISOString() : null
+      }));
+    } catch (erro) {
+      // Sem localStorage (ou cheio): a página segue funcionando, só não abre sem internet.
+    }
+  }
+
+  // Desenha o que ficou salvo da última visita. Qualquer problema no que foi salvo faz a
+  // página abrir como se não houvesse nada salvo.
+  function carregarSalvo() {
+    try {
+      var salvo = JSON.parse(localStorage.getItem(CHAVE_SALVA));
+      var lido = {};
+      var total = 0;
+      FONTES.forEach(function (fonte, i) {
+        var itens = salvo.porFonte[fonte.classe];
+        if (!Array.isArray(itens)) return;
+        lido[i] = itens.map(function (item) {
+          return { id: String(item.id), mensagem: String(item.mensagem), data: new Date(item.data), fonte: fonte };
+        }).filter(function (item) { return !isNaN(item.data); });
+        total += lido[i].length;
+      });
+      if (total === 0) return;
+
+      var quando = salvo.ultimaAtualizacao ? new Date(salvo.ultimaAtualizacao) : null;
+      porFonte = lido;
+      ultimaAtualizacao = quando && !isNaN(quando) ? quando : null;
+      // "vistos" continua vazio de propósito: a primeira consulta não destaca nada, como sempre foi.
+      desenhar({});
+      mostrarSituacao();
+    } catch (erro) {
+      // Nada salvo, formato antigo ou localStorage indisponível.
+    }
+  }
+
   function atualizar() {
     if (consultando) return;
     consultando = true;
@@ -369,6 +418,8 @@
         elAviso.hidden = false;
         elSituacao.textContent = '';
       }
+
+      if (falhas < resultados.length) salvar();
     }).finally(function () {
       consultando = false;
     });
@@ -406,6 +457,7 @@
     ajustarAcoes();
   });
 
+  carregarSalvo();
   atualizar();
   setInterval(atualizar, INTERVALO_MS);
   document.addEventListener('visibilitychange', function () {

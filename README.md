@@ -17,7 +17,8 @@ python3 -m http.server
 ## App no celular
 
 No Chrome do Android a página pode ser instalada como app pelo botão "Instalar no
-celular". O `sw.js` guarda a página para ela abrir sem internet.
+celular". O `sw.js` guarda a página para ela abrir sem internet, e a última lista
+carregada fica salva no aparelho (`localStorage`).
 
 Ao mudar o `manifest.webmanifest` ou os ícones, troque o nome do cache em `sw.js`
 (`CACHE`) para os aparelhos buscarem os arquivos de novo.
