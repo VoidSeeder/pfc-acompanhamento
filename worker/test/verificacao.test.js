@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chaveDaInscricao } from '../src/inscricoes.js';
 import { verificar } from '../src/verificacao.js';
 import { criarKv } from './apoio.js';
@@ -36,13 +36,28 @@ const ok = (ids, etag) => ({
   itens: ids.map((id, i) => ({ id, mensagem: 'mensagem ' + id, data: 1000 - i })),
 });
 
+const AGORA = Date.UTC(2026, 9, 2, 23, 45);
+const ANTES = AGORA - 5 * 60 * 1000;
+const guardado = (id, etag) => ({ vistos: [id], etag, itens: ok([id]).itens, consultadoEm: ANTES });
+
 const estadoInicial = () => ({
-  texto: { vistos: ['t1'], etag: 'et' },
-  codigo: { vistos: ['c1'], etag: 'ec' },
-  documentacao: { vistos: ['d1'], etag: 'ed' },
+  texto: guardado('t1', 'et'),
+  codigo: guardado('c1', 'ec'),
+  documentacao: guardado('d1', 'ed'),
 });
 
-afterEach(() => vi.restoreAllMocks());
+const conferidoAgora = (estado) =>
+  Object.fromEntries(Object.entries(estado).map(([chave, valor]) => [chave, { ...valor, consultadoEm: AGORA }]));
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(AGORA);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe('verificar', () => {
   it('na primeira execução registra o estado e não avisa ninguém', async () => {
@@ -54,7 +69,7 @@ describe('verificar', () => {
 
     expect(resumo).toEqual({ novos: 0, enviadas: 0, extintas: 0, falhas: [] });
     expect(enviar).not.toHaveBeenCalled();
-    expect(await kv.get('estado', 'json')).toEqual(estadoInicial());
+    expect(await kv.get('estado', 'json')).toEqual(conferidoAgora(estadoInicial()));
     expect(pedidos).toEqual([
       { chave: 'texto', etag: null, token: 'segredo' },
       { chave: 'codigo', etag: null, token: 'segredo' },
@@ -71,15 +86,35 @@ describe('verificar', () => {
     expect(pedidos.map((p) => p.etag)).toEqual(['et', 'ec', 'ed']);
   });
 
-  it('sem mudanças não grava nada no KV', async () => {
+  it('estado de antes da reserva (sem itens) consulta sem ETag, para receber a lista inteira', async () => {
+    const kv = await kvCom({ estado: { ...estadoInicial(), texto: { vistos: ['t1'], etag: 'et' } } });
+    const { buscar, pedidos } = fontes({});
+
+    await verificar(env(kv), { buscar, enviar: vi.fn() });
+
+    expect(pedidos.map((p) => p.etag)).toEqual([null, 'ec', 'ed']);
+  });
+
+  it('sem mudanças só renova a hora da conferência, numa gravação', async () => {
     const kv = await kvCom({ estado: estadoInicial(), inscricoes: [inscricao('a')] });
     const enviar = vi.fn();
 
     const resumo = await verificar(env(kv), { buscar: fontes({}).buscar, enviar });
 
     expect(resumo.novos).toBe(0);
-    expect(kv.gravacoes).toBe(0);
+    expect(kv.gravacoes).toBe(1);
+    expect(await kv.get('estado', 'json')).toEqual(conferidoAgora(estadoInicial()));
     expect(enviar).not.toHaveBeenCalled();
+  });
+
+  it('com todas as fontes falhando não grava nada', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const kv = await kvCom({ estado: estadoInicial() });
+    const falha = { situacao: 'falha', motivo: 'HTTP 403' };
+
+    await verificar(env(kv), { buscar: fontes({ texto: falha, codigo: falha, documentacao: falha }).buscar, enviar: vi.fn() });
+
+    expect(kv.gravacoes).toBe(0);
   });
 
   it('com uma novidade avisa todas as inscrições com o rótulo da fonte', async () => {
@@ -92,13 +127,18 @@ describe('verificar', () => {
     expect(enviar).toHaveBeenCalledTimes(1);
     const [inscricoes, notificacao, vapid] = enviar.mock.calls[0];
     expect(inscricoes.map((i) => i.endpoint).sort()).toEqual([inscricao('a').endpoint, inscricao('b').endpoint]);
-    expect(notificacao).toEqual({ titulo: 'Códigos', corpo: 'mensagem c2' });
+    expect(notificacao).toEqual({ titulo: 'O TCC do João Pedro tem uma novidade', corpo: 'Códigos: mensagem c2' });
     expect(vapid).toEqual({
       subject: 'https://voidseeder.github.io/pfc-acompanhamento/',
       publicKey: 'publica',
       privateKey: 'privada',
     });
-    expect((await kv.get('estado', 'json')).codigo).toEqual({ vistos: ['c2', 'c1'], etag: 'ec2' });
+    expect((await kv.get('estado', 'json')).codigo).toEqual({
+      vistos: ['c2', 'c1'],
+      etag: 'ec2',
+      itens: ok(['c2', 'c1']).itens,
+      consultadoEm: AGORA,
+    });
   });
 
   it('novidades em várias fontes viram uma notificação só', async () => {
@@ -110,7 +150,7 @@ describe('verificar', () => {
 
     expect(resumo.novos).toBe(3);
     expect(enviar).toHaveBeenCalledTimes(1);
-    expect(enviar.mock.calls[0][1].titulo).toBe('3 novidades no TCC');
+    expect(enviar.mock.calls[0][1].titulo).toBe('O TCC do João Pedro tem 3 novidades');
   });
 
   it('grava o estado antes de enviar, para não repetir o aviso se o envio for interrompido', async () => {
@@ -151,7 +191,7 @@ describe('verificar', () => {
     const resumo = await verificar(env(kv), { buscar, enviar });
 
     expect(resumo).toEqual({ novos: 1, enviadas: 1, extintas: 0, falhas: ['texto'] });
-    expect((await kv.get('estado', 'json')).texto).toEqual({ vistos: ['t1'], etag: 'et' });
+    expect((await kv.get('estado', 'json')).texto).toEqual(guardado('t1', 'et'));
   });
 
   it('sem inscrições não tenta enviar', async () => {

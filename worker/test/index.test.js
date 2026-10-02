@@ -100,6 +100,34 @@ describe('DELETE /inscricoes', () => {
   });
 });
 
+describe('GET /lista', () => {
+  const URL_LISTA = 'https://tcc-avisos.exemplo.workers.dev/lista';
+  const itens = [{ id: 'c2', mensagem: 'Ajusta o solver', data: 2000 }];
+
+  it('devolve os itens guardados de cada fonte, com a hora da conferência e CORS para a página', async () => {
+    const kv = criarKv({
+      estado: JSON.stringify({
+        codigo: { vistos: ['c2', 'c1'], etag: 'ec', itens, consultadoEm: 3000 },
+        texto: { vistos: ['t1'], etag: 'et' },
+      }),
+    });
+
+    const resposta = await worker.fetch(new Request(URL_LISTA), env(kv));
+
+    expect(resposta.status).toBe(200);
+    expect(resposta.headers.get('Access-Control-Allow-Origin')).toBe(ORIGEM);
+    expect(resposta.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
+    expect(resposta.headers.get('Cache-Control')).toBe('no-store');
+    expect(await resposta.json()).toEqual({ codigo: { itens, consultadoEm: 3000 } });
+  });
+
+  it('sem nada guardado devolve um objeto vazio', async () => {
+    const resposta = await worker.fetch(new Request(URL_LISTA), env());
+    expect(resposta.status).toBe(200);
+    expect(await resposta.json()).toEqual({});
+  });
+});
+
 describe('demais pedidos', () => {
   it('OPTIONS /inscricoes libera POST e DELETE com JSON para a página', async () => {
     const resposta = await worker.fetch(new Request(URL_INSCRICOES, { method: 'OPTIONS' }), env());
@@ -113,6 +141,7 @@ describe('demais pedidos', () => {
     ['GET', 'https://tcc-avisos.exemplo.workers.dev/'],
     ['GET', URL_INSCRICOES],
     ['PUT', URL_INSCRICOES],
+    ['POST', 'https://tcc-avisos.exemplo.workers.dev/lista'],
     ['POST', 'https://tcc-avisos.exemplo.workers.dev/inscricoes/123'],
     ['POST', 'https://tcc-avisos.exemplo.workers.dev/outra'],
   ])('%s %s responde 404', async (metodo, url) => {

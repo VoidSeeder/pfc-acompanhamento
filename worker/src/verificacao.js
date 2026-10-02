@@ -7,9 +7,15 @@ import { enviarATodas } from './push.js';
 // buscar e enviar são trocáveis para os testes.
 export async function verificar(env, { buscar = buscarFonte, enviar = enviarATodas } = {}) {
   const estado = (await env.AVISOS.get('estado', 'json')) ?? {};
+  // Estado gravado antes da reserva não tem itens: sem o ETag, a resposta vem com a lista
+  // inteira em vez de um 304.
   const resultados = await Promise.all(
-    FONTES.map((fonte) => buscar(fonte, estado[fonte.chave]?.etag ?? null, env.GITHUB_TOKEN)),
+    FONTES.map((fonte) => {
+      const guardado = estado[fonte.chave];
+      return buscar(fonte, guardado?.itens ? guardado.etag ?? null : null, env.GITHUB_TOKEN);
+    }),
   );
+  const agora = Date.now();
 
   const novos = [];
   const falhas = [];
@@ -19,7 +25,7 @@ export async function verificar(env, { buscar = buscarFonte, enviar = enviarATod
       falhas.push(fonte.chave);
       console.error(`fonte ${fonte.chave} falhou: ${resultados[i].motivo}`);
     }
-    const avaliacao = avaliarFonte(estado[fonte.chave], resultados[i]);
+    const avaliacao = avaliarFonte(estado[fonte.chave], resultados[i], agora);
     if (avaliacao.mudou) {
       estado[fonte.chave] = avaliacao.estado;
       mudou = true;

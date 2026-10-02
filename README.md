@@ -8,7 +8,10 @@ decisões e estudos do trabalho, guardados em um Gist.
 Disponível em <https://voidseeder.github.io/pfc-acompanhamento/>.
 
 A página consulta a API pública do GitHub ao abrir e a cada cinco minutos; não há
-servidor nem etapa de build. Para testar localmente:
+etapa de build. Sem login, o GitHub aceita 60 consultas por hora por endereço IP, e
+cada atualização da página gasta duas. Quando uma fonte falha (limite esgotado ou
+GitHub fora do ar), a página usa a cópia guardada pelo Worker de avisos (veja
+abaixo) e diz no aviso de que horas é essa cópia. Para testar localmente:
 
 ```bash
 python3 -m http.server
@@ -36,8 +39,10 @@ npx --yes @resvg/resvg-js-cli --no-system-font --fit-width 512 icones/icone-mask
 Quem instala o app pode tocar em "Avisar-me das novidades" para receber uma
 notificação quando sair atualização. Os avisos são enviados por um Cloudflare
 Worker (pasta `worker/`), que consulta as mesmas fontes a cada cinco minutos e
-manda um Web Push para os aparelhos inscritos. A página não depende do Worker
-para listar as atualizações: com ele fora do ar, só os avisos param.
+manda um Web Push para os aparelhos inscritos. A cada verificação ele também
+guarda a última lista de cada fonte, servida em `GET /lista`; é a reserva que a
+página usa quando o GitHub não responde. Com o Worker fora do ar, os avisos param
+e a página volta a depender só do GitHub.
 
 Worker em produção: <https://tcc-avisos.tcc-avisos.workers.dev>
 
@@ -71,5 +76,6 @@ Configuração:
 
 Limites conhecidos, todos do plano gratuito da Cloudflare: até 200 inscrições
 guardadas e cerca de 47 envios por verificação (50 subrequisições por execução,
-três delas gastas nas consultas). Se o token do GitHub vencer, o Worker passa a
+três delas gastas nas consultas). A verificação grava o estado no KV a cada cinco
+minutos (288 das 1.000 gravações diárias); o resto fica para as inscrições. Se o token do GitHub vencer, o Worker passa a
 consultar sem token e registra o erro no log (`npx wrangler tail`).

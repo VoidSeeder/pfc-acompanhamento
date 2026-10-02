@@ -67,7 +67,7 @@ self.addEventListener('push', function (evento) {
     // Push sem conteúdo ou com conteúdo que não é JSON: avisa com o texto fixo.
   }
   evento.waitUntil(
-    self.registration.showNotification(dados.titulo || 'Há novidades no TCC', {
+    self.registration.showNotification(dados.titulo || 'O TCC do João Pedro tem novidades', {
       body: dados.corpo || '',
       icon: 'icones/icone-192.png',
       tag: 'tcc',

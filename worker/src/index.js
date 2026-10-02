@@ -1,7 +1,7 @@
 import { LIMITE_CORPO_BYTES, apagarInscricao, guardarInscricao, validarInscricao } from './inscricoes.js';
 import { verificar } from './verificacao.js';
 
-function responder(status, env, texto = null) {
+function responder(status, env, texto = null, extras = {}) {
   return new Response(texto, {
     status,
     headers: {
@@ -10,7 +10,22 @@ function responder(status, env, texto = null) {
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Max-Age': '86400',
       Vary: 'Origin',
+      ...extras,
     },
+  });
+}
+
+// A última lista que a verificação agendada conseguiu de cada fonte. A página recorre a ela
+// quando a consulta direta ao GitHub falha (por exemplo, pelo limite de consultas sem token).
+async function lista(env) {
+  const estado = (await env.AVISOS.get('estado', 'json')) ?? {};
+  const fontes = {};
+  for (const [chave, { itens, consultadoEm }] of Object.entries(estado)) {
+    if (Array.isArray(itens)) fontes[chave] = { itens, consultadoEm };
+  }
+  return responder(200, env, JSON.stringify(fontes), {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
   });
 }
 
@@ -44,6 +59,7 @@ async function lerJson(pedido) {
 async function atender(pedido, env) {
   const { pathname } = new URL(pedido.url);
   const metodo = pedido.method;
+  if (pathname === '/lista' && metodo === 'GET') return lista(env);
   if (pathname !== '/inscricoes' || !['POST', 'DELETE', 'OPTIONS'].includes(metodo)) {
     return new Response('Não encontrado', { status: 404 });
   }

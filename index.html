@@ -196,8 +196,9 @@
   var MINIMO_ENTRE_CONSULTAS_MS = 60 * 1000;
   var CHAVE_SALVA = 'tcc-lista';
 
-  // Worker de avisos (pasta worker/). A página só depende dele para os avisos, nunca para a
-  // lista. Com AVISOS_URL vazio, o bloco de avisos não aparece.
+  // Worker de avisos (pasta worker/). Além dos avisos, ele guarda uma cópia da lista, usada
+  // só quando o GitHub não responde. Com AVISOS_URL vazio, o bloco de avisos não aparece e
+  // não há cópia de reserva.
   var AVISOS_URL = 'https://tcc-avisos.tcc-avisos.workers.dev';
   // Igual a VAPID_PUBLIC_KEY em worker/wrangler.toml.
   var AVISOS_CHAVE_PUBLICA = 'BLw60B8eFuoqlp6iTWKlaPxY7v2f13Kl7QwlNi_sG29ym5Gtj2GxYdV5ndnSEAVxHhDUmNSRgJFDcfWqZD0P6x8';
@@ -213,6 +214,9 @@
 
   // Última resposta boa de cada fonte; se uma consulta falhar, a anterior continua valendo.
   var porFonte = {};
+  // Quando os itens de cada fonte foram conferidos (Date): agora, pela página, ou antes, pelo
+  // Worker ou numa visita anterior.
+  var obtidoEm = {};
   var vistos = null;
   var ultimaConsulta = 0;
   var ultimaAtualizacao = null;
@@ -228,6 +232,23 @@
 
   function chaveDoDia(data) {
     return data.getFullYear() + '-' + data.getMonth() + '-' + data.getDate();
+  }
+
+  function quando(data, agora) {
+    return nomeDoDia(data, agora).toLowerCase() + ' às ' + hora(data);
+  }
+
+  function idade(data, agora) {
+    var minutos = Math.floor((agora - data) / 60000);
+    if (minutos < 1) return 'há menos de um minuto';
+    if (minutos < 60) return minutos === 1 ? 'há 1 minuto' : 'há ' + minutos + ' minutos';
+    var horas = Math.floor(minutos / 60);
+    return horas === 1 ? 'há 1 hora' : 'há ' + horas + ' horas';
+  }
+
+  function juntarNomes(nomes) {
+    if (nomes.length < 2) return nomes.join('');
+    return nomes.slice(0, -1).join(', ') + ' e ' + nomes[nomes.length - 1];
   }
 
   function nomeDoDia(data, agora) {
@@ -281,6 +302,47 @@
           };
         });
       });
+  }
+
+  // Cópia que o Worker guarda de cada fonte: { classe: { itens, consultadoEm } }.
+  function buscarReserva() {
+    if (!AVISOS_URL) return Promise.reject(new Error('sem Worker'));
+    return fetch(AVISOS_URL + '/lista', { cache: 'no-store' })
+      .then(function (resposta) {
+        if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
+        return resposta.json();
+      });
+  }
+
+  // Itens que vieram de fora da consulta direta (Worker ou localStorage), já conferidos.
+  function lerItens(itens, fonte) {
+    return itens.map(function (item) {
+      return { id: String(item.id), mensagem: String(item.mensagem), data: new Date(item.data), fonte: fonte };
+    }).filter(function (item) { return !isNaN(item.data); });
+  }
+
+  // Põe no lugar das fontes que falharam a cópia do Worker, quando ela for mais nova do que a
+  // que a página já tem. Uma falha do Worker deixa tudo como estava.
+  function usarReserva(falharam) {
+    return buscarReserva().then(function (reserva) {
+      falharam.forEach(function (i) {
+        var guardado = reserva[FONTES[i].classe];
+        if (!guardado || !Array.isArray(guardado.itens)) return;
+        var conferido = new Date(guardado.consultadoEm);
+        if (isNaN(conferido) || (obtidoEm[i] && obtidoEm[i] >= conferido)) return;
+        porFonte[i] = lerItens(guardado.itens, FONTES[i]);
+        obtidoEm[i] = conferido;
+      });
+    }).catch(function () {});
+  }
+
+  // A conferência mais antiga entre as fontes indicadas que têm hora conhecida.
+  function maisAntiga(indices) {
+    var resultado = null;
+    indices.forEach(function (i) {
+      if (obtidoEm[i] && (!resultado || obtidoEm[i] < resultado)) resultado = obtidoEm[i];
+    });
+    return resultado;
   }
 
   function desenhar(novos) {
@@ -341,8 +403,8 @@
 
   function mostrarSituacao() {
     if (!ultimaAtualizacao) return;
-    elSituacao.textContent = 'Atualizado ' + nomeDoDia(ultimaAtualizacao, new Date()).toLowerCase() +
-      ' às ' + hora(ultimaAtualizacao) + '. Esta página se atualiza sozinha.';
+    elSituacao.textContent = 'Atualizado ' + quando(ultimaAtualizacao, new Date()) +
+      '. Esta página se atualiza sozinha.';
   }
 
   // Guarda a última lista para o app abrir sem internet. Cada fonte é gravada pela sua
@@ -350,16 +412,15 @@
   function salvar() {
     try {
       var itens = {};
+      var horas = {};
       FONTES.forEach(function (fonte, i) {
         if (!porFonte[i]) return;
         itens[fonte.classe] = porFonte[i].map(function (item) {
           return { id: item.id, mensagem: item.mensagem, data: item.data.toISOString() };
         });
+        if (obtidoEm[i]) horas[fonte.classe] = obtidoEm[i].toISOString();
       });
-      localStorage.setItem(CHAVE_SALVA, JSON.stringify({
-        porFonte: itens,
-        ultimaAtualizacao: ultimaAtualizacao ? ultimaAtualizacao.toISOString() : null
-      }));
+      localStorage.setItem(CHAVE_SALVA, JSON.stringify({ porFonte: itens, obtidoEm: horas }));
     } catch (erro) {
       // Sem localStorage (ou cheio): a página segue funcionando, só não abre sem internet.
     }
@@ -370,21 +431,24 @@
   function carregarSalvo() {
     try {
       var salvo = JSON.parse(localStorage.getItem(CHAVE_SALVA));
+      var horas = salvo.obtidoEm || {};
       var lido = {};
+      var lidoEm = {};
       var total = 0;
       FONTES.forEach(function (fonte, i) {
         var itens = salvo.porFonte[fonte.classe];
         if (!Array.isArray(itens)) return;
-        lido[i] = itens.map(function (item) {
-          return { id: String(item.id), mensagem: String(item.mensagem), data: new Date(item.data), fonte: fonte };
-        }).filter(function (item) { return !isNaN(item.data); });
+        lido[i] = lerItens(itens, fonte);
         total += lido[i].length;
+        // Gravações antigas só têm a hora geral da última atualização.
+        var conferido = new Date(horas[fonte.classe] || salvo.ultimaAtualizacao);
+        if (!isNaN(conferido)) lidoEm[i] = conferido;
       });
       if (total === 0) return;
 
-      var quando = salvo.ultimaAtualizacao ? new Date(salvo.ultimaAtualizacao) : null;
       porFonte = lido;
-      ultimaAtualizacao = quando && !isNaN(quando) ? quando : null;
+      obtidoEm = lidoEm;
+      ultimaAtualizacao = maisAntiga(Object.keys(porFonte));
       // "vistos" continua vazio de propósito: a primeira consulta não destaca nada, como sempre foi.
       desenhar({});
       mostrarSituacao();
@@ -398,13 +462,19 @@
     consultando = true;
     ultimaConsulta = Date.now();
 
+    var falharam = [];
     Promise.allSettled(FONTES.map(buscar)).then(function (resultados) {
-      var falhas = 0;
+      var agora = new Date();
       resultados.forEach(function (resultado, i) {
-        if (resultado.status === 'fulfilled') porFonte[i] = resultado.value;
-        else falhas++;
+        if (resultado.status === 'fulfilled') {
+          porFonte[i] = resultado.value;
+          obtidoEm[i] = agora;
+        } else {
+          falharam.push(i);
+        }
       });
-
+      if (falharam.length > 0) return usarReserva(falharam);
+    }).then(function () {
       var temAlgo = Object.keys(porFonte).length > 0;
       var novos = {};
       if (temAlgo) {
@@ -419,22 +489,31 @@
         desenhar(novos);
       }
 
-      if (falhas === 0) {
-        ultimaAtualizacao = new Date();
-        elAviso.hidden = true;
-        mostrarSituacao();
-      } else if (temAlgo) {
-        elAviso.textContent = 'Não foi possível buscar as novidades agora. A lista abaixo pode estar incompleta; a página tenta de novo em alguns minutos.';
-        elAviso.hidden = false;
-        if (ultimaAtualizacao) mostrarSituacao();
-        else elSituacao.textContent = '';
-      } else {
-        elAviso.textContent = 'Não foi possível carregar as atualizações agora. A página tenta de novo sozinha em alguns minutos.';
-        elAviso.hidden = false;
-        elSituacao.textContent = '';
-      }
+      var agora = new Date();
+      var semNada = falharam.filter(function (i) { return !porFonte[i]; });
+      var atrasadas = falharam.filter(function (i) { return porFonte[i]; });
+      ultimaAtualizacao = maisAntiga(Object.keys(porFonte));
 
-      if (falhas < resultados.length) salvar();
+      if (!temAlgo) {
+        elAviso.textContent = 'Não foi possível carregar as atualizações agora. A página tenta de novo sozinha em alguns minutos.';
+      } else if (semNada.length > 0) {
+        elAviso.textContent = 'Não foi possível buscar as novidades agora. A lista abaixo pode estar incompleta; a página tenta de novo em alguns minutos.';
+      } else if (atrasadas.length > 0) {
+        var antiga = maisAntiga(atrasadas);
+        var nomes = juntarNomes(atrasadas.map(function (i) { return FONTES[i].rotulo; }));
+        elAviso.textContent = 'O GitHub não respondeu agora. ' + nomes +
+          (atrasadas.length === 1 ? ' mostra' : ' mostram') + ' o que havia ' +
+          (antiga ? quando(antiga, agora) + ' (' + idade(antiga, agora) + ')' : 'na última visita') +
+          ' e pode' + (atrasadas.length === 1 ? '' : 'm') +
+          ' não ter as últimas novidades; a página tenta de novo em alguns minutos.';
+      }
+      elAviso.hidden = falharam.length === 0;
+
+      // Com uma fonte sem nada, a lista está incompleta e não há hora de atualização a dar.
+      if (ultimaAtualizacao && semNada.length === 0) mostrarSituacao();
+      else elSituacao.textContent = '';
+
+      if (temAlgo) salvar();
     }).finally(function () {
       consultando = false;
     });
