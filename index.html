@@ -245,7 +245,9 @@
   }
 
   function buscarAnotacoes(fonte) {
-    return fetch(fonte.anotacoes)
+    // O endereço "raw" do Gist fica 5 minutos no cache da CDN e mais 5 no do navegador; o
+    // parâmetro muda a cada consulta para trazer sempre a revisão atual.
+    return fetch(fonte.anotacoes + '?t=' + Date.now(), { cache: 'no-store' })
       .then(function (resposta) {
         if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
         return resposta.json();
