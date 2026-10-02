@@ -56,3 +56,34 @@ self.addEventListener('fetch', function (evento) {
     caches.match(pedido).then(function (guardado) { return guardado || fetch(pedido); })
   );
 });
+
+// Aviso de novidades enviado pelo Worker (pasta worker/). A etiqueta fixa faz o aviso novo
+// substituir o anterior ainda não lido.
+self.addEventListener('push', function (evento) {
+  var dados = {};
+  try {
+    dados = evento.data.json() || {};
+  } catch (erro) {
+    // Push sem conteúdo ou com conteúdo que não é JSON: avisa com o texto fixo.
+  }
+  evento.waitUntil(
+    self.registration.showNotification(dados.titulo || 'Há novidades no TCC', {
+      body: dados.corpo || '',
+      icon: 'icones/icone-192.png',
+      tag: 'tcc',
+      renotify: true
+    })
+  );
+});
+
+self.addEventListener('notificationclick', function (evento) {
+  evento.notification.close();
+  evento.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (janelas) {
+      for (var i = 0; i < janelas.length; i++) {
+        if (janelas[i].url.indexOf(self.registration.scope) === 0) return janelas[i].focus();
+      }
+      return self.clients.openWindow(self.registration.scope);
+    })
+  );
+});

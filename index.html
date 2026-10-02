@@ -172,6 +172,9 @@
   <p class="situacao" id="situacao" aria-live="polite">Carregando…</p>
   <div class="acoes" id="acoes" hidden>
     <button type="button" id="instalar" hidden>Instalar no celular</button>
+    <button type="button" id="ativar-avisos" hidden>Avisar-me das novidades</button>
+    <span id="avisos-texto" role="status" hidden></span>
+    <button type="button" id="desativar-avisos" hidden>Desativar</button>
   </div>
   <p class="aviso" id="aviso" role="status" hidden></p>
 
@@ -193,11 +196,20 @@
   var MINIMO_ENTRE_CONSULTAS_MS = 60 * 1000;
   var CHAVE_SALVA = 'tcc-lista';
 
+  // Worker de avisos (pasta worker/). A página só depende dele para os avisos, nunca para a
+  // lista. Com AVISOS_URL vazio, o bloco de avisos não aparece.
+  var AVISOS_URL = '';
+  // Igual a VAPID_PUBLIC_KEY em worker/wrangler.toml.
+  var AVISOS_CHAVE_PUBLICA = 'BLw60B8eFuoqlp6iTWKlaPxY7v2f13Kl7QwlNi_sG29ym5Gtj2GxYdV5ndnSEAVxHhDUmNSRgJFDcfWqZD0P6x8';
+
   var elLista = document.getElementById('lista');
   var elSituacao = document.getElementById('situacao');
   var elAviso = document.getElementById('aviso');
   var elAcoes = document.getElementById('acoes');
   var elInstalar = document.getElementById('instalar');
+  var elAtivar = document.getElementById('ativar-avisos');
+  var elDesativar = document.getElementById('desativar-avisos');
+  var elAvisosTexto = document.getElementById('avisos-texto');
 
   // Última resposta boa de cada fonte; se uma consulta falhar, a anterior continua valendo.
   var porFonte = {};
@@ -457,6 +469,106 @@
     elInstalar.hidden = true;
     ajustarAcoes();
   });
+
+  var TEXTOS_DOS_AVISOS = {
+    ativado: 'Avisos ativados neste aparelho.',
+    bloqueado: 'Os avisos estão bloqueados nas configurações do navegador.',
+    falha: 'Não foi possível ativar os avisos agora. Tente de novo mais tarde.'
+  };
+
+  // situacao: 'desativado', 'ativado', 'bloqueado' ou 'falha'.
+  function mostrarAvisos(situacao) {
+    var texto = TEXTOS_DOS_AVISOS[situacao] || '';
+    elAtivar.hidden = situacao !== 'desativado' && situacao !== 'falha';
+    elAtivar.disabled = false;
+    elDesativar.hidden = situacao !== 'ativado';
+    elDesativar.disabled = false;
+    elAvisosTexto.textContent = texto;
+    elAvisosTexto.hidden = !texto;
+    ajustarAcoes();
+  }
+
+  function chaveEmBytes(base64url) {
+    var binario = atob(base64url.replace(/-/g, '+').replace(/_/g, '/'));
+    var bytes = new Uint8Array(binario.length);
+    for (var i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+    return bytes;
+  }
+
+  function inscricaoAtual() {
+    return navigator.serviceWorker.ready.then(function (registro) {
+      return registro.pushManager.getSubscription();
+    });
+  }
+
+  function falarComWorker(metodo, corpo) {
+    return fetch(AVISOS_URL + '/inscricoes', {
+      method: metodo,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(corpo)
+    }).then(function (resposta) {
+      if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
+    });
+  }
+
+  function conferirAvisos() {
+    if (Notification.permission === 'denied') {
+      mostrarAvisos('bloqueado');
+      return;
+    }
+    inscricaoAtual().then(function (inscricao) {
+      mostrarAvisos(inscricao ? 'ativado' : 'desativado');
+    }).catch(function () {
+      // Sem service worker funcionando não há como avisar; o bloco fica escondido.
+    });
+  }
+
+  function inscrever() {
+    return navigator.serviceWorker.ready.then(function (registro) {
+      return registro.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: chaveEmBytes(AVISOS_CHAVE_PUBLICA)
+      });
+    }).then(function (inscricao) {
+      return falarComWorker('POST', inscricao.toJSON()).catch(function (erro) {
+        // O Worker não recebeu: desfaz a inscrição no navegador para não ficar meio ativada.
+        var repassar = function () { throw erro; };
+        return inscricao.unsubscribe().then(repassar, repassar);
+      });
+    });
+  }
+
+  function ativarAvisos() {
+    elAtivar.disabled = true;
+    Notification.requestPermission().then(function (permissao) {
+      if (permissao !== 'granted') {
+        mostrarAvisos(permissao === 'denied' ? 'bloqueado' : 'desativado');
+        return;
+      }
+      return inscrever().then(function () { mostrarAvisos('ativado'); });
+    }).catch(function () {
+      mostrarAvisos('falha');
+    });
+  }
+
+  function desativarAvisos() {
+    elDesativar.disabled = true;
+    inscricaoAtual().then(function (inscricao) {
+      if (!inscricao) return;
+      var endpoint = inscricao.endpoint;
+      return inscricao.unsubscribe().then(function () {
+        // Se o Worker não responder agora, ele apaga a inscrição sozinho no próximo envio,
+        // quando o serviço de push disser que ela não existe mais.
+        return falarComWorker('DELETE', { endpoint: endpoint }).catch(function () {});
+      });
+    }).then(conferirAvisos, conferirAvisos);
+  }
+
+  if (AVISOS_URL && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window) {
+    elAtivar.addEventListener('click', ativarAvisos);
+    elDesativar.addEventListener('click', desativarAvisos);
+    conferirAvisos();
+  }
 
   carregarSalvo();
   atualizar();
