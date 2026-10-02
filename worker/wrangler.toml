@@ -1,0 +1,17 @@
+name = "tcc-avisos"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[kv_namespaces]]
+binding = "AVISOS"
+
+[vars]
+VAPID_PUBLIC_KEY = "BLw60B8eFuoqlp6iTWKlaPxY7v2f13Kl7QwlNi_sG29ym5Gtj2GxYdV5ndnSEAVxHhDUmNSRgJFDcfWqZD0P6x8"
+VAPID_SUBJECT = "https://voidseeder.github.io/pfc-acompanhamento/"
+ORIGEM_PERMITIDA = "https://voidseeder.github.io"
+
+[observability]
+enabled = true
