@@ -30,3 +30,46 @@ npx --yes @resvg/resvg-js-cli --no-system-font --fit-width 192 icones/icone.svg 
 npx --yes @resvg/resvg-js-cli --no-system-font --fit-width 512 icones/icone.svg icones/icone-512.png
 npx --yes @resvg/resvg-js-cli --no-system-font --fit-width 512 icones/icone-maskable.svg icones/icone-maskable-512.png
 ```
+
+## Avisos de novidades
+
+Quem instala o app pode tocar em "Avisar-me das novidades" para receber uma
+notificação quando sair atualização. Os avisos são enviados por um Cloudflare
+Worker (pasta `worker/`), que consulta as mesmas fontes a cada cinco minutos e
+manda um Web Push para os aparelhos inscritos. A página não depende do Worker
+para listar as atualizações: com ele fora do ar, só os avisos param.
+
+Worker em produção: <https://tcc-avisos.tcc-avisos.workers.dev>
+
+A lista de fontes existe em dois lugares, `index.html` e `worker/src/fontes.js`;
+ao mudar uma, mude a outra.
+
+```bash
+cd worker
+npm install
+npm test          # testes (Vitest)
+npm run dev       # Worker local em http://localhost:8787
+npm run deploy    # publica na Cloudflare
+```
+
+Para disparar a verificação no Worker local:
+
+```bash
+curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"
+```
+
+Configuração:
+
+- `worker/wrangler.toml`: `VAPID_PUBLIC_KEY` (a mesma de `AVISOS_CHAVE_PUBLICA`
+  no `index.html`), `VAPID_SUBJECT` e `ORIGEM_PERMITIDA`.
+- Segredos na Cloudflare (`npx wrangler secret put NOME`): `VAPID_PRIVATE_KEY` e
+  `GITHUB_TOKEN` (token de acesso fino, somente leitura de repositórios
+  públicos).
+- `worker/.dev.vars` (fora do Git): os mesmos segredos para uso local. Guarde uma
+  cópia da `VAPID_PRIVATE_KEY`: se ela se perder, todos precisam ativar os avisos
+  de novo.
+
+Limites conhecidos, todos do plano gratuito da Cloudflare: até 200 inscrições
+guardadas e cerca de 47 envios por verificação (50 subrequisições por execução,
+três delas gastas nas consultas). Se o token do GitHub vencer, o Worker passa a
+consultar sem token e registra o erro no log (`npx wrangler tail`).
