@@ -554,13 +554,16 @@
   var TEXTOS_DOS_AVISOS = {
     ativado: 'Avisos ativados neste aparelho.',
     bloqueado: 'Os avisos estão bloqueados nas configurações do navegador.',
-    falha: 'Não foi possível ativar os avisos agora. Tente de novo mais tarde.'
+    falha: 'Não foi possível ativar os avisos agora. Tente de novo mais tarde.',
+    brave: 'O Brave vem com os avisos desligados. Para ligar, abra brave://settings/privacy, ' +
+      'ative a opção de mensagens push pelos serviços do Google ("Use Google services for push messaging"), ' +
+      'feche e abra o navegador e tente de novo.'
   };
 
-  // situacao: 'desativado', 'ativado', 'bloqueado' ou 'falha'.
+  // situacao: 'desativado', 'ativado', 'bloqueado', 'falha' ou 'brave'.
   function mostrarAvisos(situacao) {
     var texto = TEXTOS_DOS_AVISOS[situacao] || '';
-    elAtivar.hidden = situacao !== 'desativado' && situacao !== 'falha';
+    elAtivar.hidden = situacao !== 'desativado' && situacao !== 'falha' && situacao !== 'brave';
     elAtivar.disabled = false;
     elDesativar.hidden = situacao !== 'ativado';
     elDesativar.disabled = false;
@@ -608,12 +611,27 @@
     });
   }
 
+  // O Brave se identifica só por navigator.brave; o userAgent é igual ao do Chrome.
+  function ehBrave() {
+    if (!navigator.brave || typeof navigator.brave.isBrave !== 'function') return Promise.resolve(false);
+    return navigator.brave.isBrave().catch(function () { return false; });
+  }
+
+  // Recusa do próprio navegador, antes de falar com o Worker. No Brave ela quase sempre quer
+  // dizer que o push está desligado nas configurações, que é o padrão dele.
+  function recusaDoNavegador(erro) {
+    return ehBrave().then(function (brave) {
+      if (brave) erro = { situacao: 'brave' };
+      throw erro;
+    });
+  }
+
   function inscrever() {
     return navigator.serviceWorker.ready.then(function (registro) {
       return registro.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: chaveEmBytes(AVISOS_CHAVE_PUBLICA)
-      });
+      }).catch(recusaDoNavegador);
     }).then(function (inscricao) {
       return falarComWorker('POST', inscricao.toJSON()).catch(function (erro) {
         // O Worker não recebeu: desfaz a inscrição no navegador para não ficar meio ativada.
@@ -631,8 +649,8 @@
         return;
       }
       return inscrever().then(function () { mostrarAvisos('ativado'); });
-    }).catch(function () {
-      mostrarAvisos('falha');
+    }).catch(function (erro) {
+      mostrarAvisos(erro && erro.situacao === 'brave' ? 'brave' : 'falha');
     });
   }
 
